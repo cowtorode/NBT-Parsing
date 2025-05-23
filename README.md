@@ -184,3 +184,4 @@ So whether for use in MOSSS, or use outside of MOSSS, this NBTParser provides th
 I'm happy to be presenting this to MOSSS, as this is integral to Minecraft's item and world API! If you have any questions or concerns, please message me.
 
 *May 23rd, 2025*
+https://discord.gg/gG7ptkyNv3
