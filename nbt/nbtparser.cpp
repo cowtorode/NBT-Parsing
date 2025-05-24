@@ -2,7 +2,7 @@
 // Created by cory on 4/11/25.
 //
 
-#define PRINT_UNROUTED
+//#define PRINT_UNROUTED
 #define PRINT_NBT
 
 #include <bit>
@@ -13,13 +13,13 @@
 
 #ifdef PRINT_UNROUTED
 #define unrouted(stmt) stmt
-#elif
+#else
 #define unrouted(stmt)
 #endif
 
 #ifdef PRINT_NBT
 #define debug(stmt) stmt
-#elif
+#else
 #define debug(stmt)
 #endif
 
@@ -45,46 +45,12 @@ NBTParser::StackElement::StackElement(const NBTRouter& router) : router(router)
 NBTParser::StackElement::StackElement(const NBTRouter& router, void* handle) : router(router), handle(handle)
 {}
 
-static const NBTRouter EMPTY_NBT_ROUTER{};
-
 NBTParser::NBTParser() : end(nullptr), cursor(nullptr)
 {}
 
 inline size_t NBTParser::sector_remaining() const
 {
     return end - cursor;
-}
-
-void NBTParser::push(const NBTRouter& router)
-{
-    parser_stack.push({router, router.next_handle(handle())});
-}
-
-void NBTParser::set_router(const NBTRouter& r)
-{
-    // clear the stack
-    // (so stupid)
-    for (int i = 0; i < parser_stack.size(); ++i)
-    {
-        parser_stack.pop();
-    }
-
-    parser_stack.push(r);
-}
-
-void NBTParser::set_handle(void* handle)
-{
-    parser_stack.top().handle = handle;
-}
-
-const NBTRouter& NBTParser::router()
-{
-    return parser_stack.top().router;
-}
-
-void* NBTParser::handle()
-{
-    return parser_stack.top().handle;
 }
 
 void NBTParser::feed(char* buffer, size_t size)
@@ -190,6 +156,43 @@ std::string NBTParser::read_string()
     std::string rax(cursor, length);
     cursor += length;
     return rax;
+}
+
+void NBTParser::push(const NBTRouter& router)
+{
+    parser_stack.emplace(router, router.prepare_for_compound(handle()));
+}
+
+void NBTParser::push_list(const NBTRouter& router, int32_t len)
+{
+    parser_stack.emplace(router, router.prepare_for_compound_list(handle(), len));
+}
+
+void NBTParser::set_router(const NBTRouter& r)
+{
+    // clear the stack
+    // (so stupid)
+    for (int i = 0; i < parser_stack.size(); ++i)
+    {
+        parser_stack.pop();
+    }
+
+    parser_stack.emplace(r);
+}
+
+void NBTParser::set_handle(void* handle)
+{
+    parser_stack.top().handle = handle;
+}
+
+const NBTRouter& NBTParser::router()
+{
+    return parser_stack.top().router;
+}
+
+void* NBTParser::handle()
+{
+    return parser_stack.top().handle;
 }
 
 int indent = 0;
@@ -312,51 +315,101 @@ void NBTParser::route_list(const std::string& name)
             debug(std::cout << "[data]" << std::endl;)
             break;
         case TAG_String:
-            debug(std::cout << "{";
+        {
+            std::string arr[len];
+
+            for (int32_t i = 0; i < len; ++i)
+            {
+                arr[i] = read_string();
+            }
+
+            router().route_string_list(name, handle(), len, arr);
+
+            debug(
+            std::cout << "{";
             for (int i = 0; i < len - 1; ++i)
             {
-                std::cout << '"' << read_string() << "\", ";
+                std::cout << '"' << arr[i] << "\", ";
             }
-            std::cout << '"' << read_string() << "\"}" << std::endl;)
+            std::cout << '"' << arr[len - 1] << "\"}" << std::endl;
+            )
             break;
+        }
+        case TAG_List:
+        {
+            debug(std::cout << std::endl;)
+
+            for (int32_t i = 0; i < len; ++i)
+            {
+                route_list(name);
+            }
+            break;
+        }
         case TAG_Compound:
         {
             route_compound_list(name, len);
             break;
         }
         default:
-            debug(std::cout << "tag: " << (int) tag_id << std::endl;)
-            // excp
-            break;
+            throw InvalidNBTListTypeException();
     }
+}
+
+const NBTParser::StackElement& NBTParser::get_empty_stack_element()
+{
+    static const NBTRouter router;
+    static const StackElement element{router};
+
+    return element;
 }
 
 void NBTParser::route_compound_list(const std::string& name, int32_t len)
 {
     debug(std::cout << std::endl;)
 
+    /*
+    prepare_for_compound_list (Chunk*->new_sections(24), return Chunk*->get_sections())
+    route_compound_entries
+    next_handle_l
+    route_compound_entries
+    next_handle_l
+    route_compound_entries
+     */
+
+    int8_t type;
     const NBTRouter* next = nullptr;
 
-    router().compounds_find(name, next);
+    router().find_compound_list(name, next);
 
     if (next)
     {
         // there is a router for this next compound
-        parser_stack.push(*next);
+        push_list(*next, len);
     } else
     {
-        parser_stack.push(EMPTY_NBT_ROUTER);
+        parser_stack.push(get_empty_stack_element());
     }
 
-    for (int i = 0; i < len; ++i)
-    {
-        int8_t type;
+    auto top = parser_stack.top();
 
+    for (int32_t i = 0; i < len - 1; ++i)
+    {
         // while (type != TAG_End)
         while ((type = read_char()))
         {
             route(type);
         }
+
+        /* Modifies to handle to change where we're writing to for future
+           elements (probably increment the pointer by one index) */
+        top.handle = top.router.next_handle_l(top.handle);
+    }
+
+    // finish off the last one (since the for loop only goes until index len - 1 exclusive)
+    // while (type != TAG_End)
+    while ((type = read_char()))
+    {
+        route(type);
     }
 
     parser_stack.pop();
@@ -366,7 +419,7 @@ void NBTParser::route_compound(const std::string& name)
 {
     const NBTRouter* next = nullptr;
 
-    router().compounds_find(name, next);
+    router().find_compound(name, next);
 
     if (next)
     {
@@ -374,7 +427,7 @@ void NBTParser::route_compound(const std::string& name)
         push(*next);
     } else
     {
-        parser_stack.push(EMPTY_NBT_ROUTER);
+        parser_stack.push(get_empty_stack_element());
     }
 
     debug(std::cout << std::string(indent, ' ') << '"' << name << "\": "<< '{' << std::endl;
@@ -510,7 +563,17 @@ void NBTRouter::set_compound_list_router(const std::string& str, const NBTRouter
     routes[str] = &router;
 }
 
-void NBTRouter::compounds_find(const std::string& str, const NBTRouter*& next) const
+void NBTRouter::find_compound(const std::string& str, const NBTRouter*& next) const
+{
+    auto itr = routes.find(str);
+
+    if (itr != routes.end())
+    {
+        next = (const NBTRouter*) itr->second;
+    }
+}
+
+void NBTRouter::find_compound_list(const std::string& str, const NBTRouter*& next) const
 {
     auto itr = routes.find(str);
 

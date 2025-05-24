@@ -11,13 +11,6 @@
 #include "mca_file.hpp"
 #include "world/chunk.hpp"
 
-
-struct ChunkParseContext
-{
-    std::string status;
-    Chunk* chunk;
-};
-
 static void route_version(Chunk* chunk, int32_t version)
 {
     chunk->set_version(version);
@@ -146,11 +139,24 @@ ChunkSection* push_chunk(Chunk* chunk)
     return chunk->get_sections();
 }
 
+ChunkSection* inc_section_ptr(ChunkSection* section)
+{
+    return section + 1;
+}
+
+ChunkSection* prepare_chunk_for_sections(Chunk* chunk, int32_t len)
+{
+    chunk->new_sections(len);
+    return chunk->get_sections();
+}
+
 static NBTRouter make_sections(const NBTRouter& block_states, const NBTRouter& biomes)
 {
     NBTRouter sections;
 
-    sections.next_handle = (handle_mutator) push_chunk;
+    sections.prepare_for_compound = (handle_mutator) push_chunk;
+    sections.next_handle_l = (handle_mutator) inc_section_ptr;
+    sections.prepare_for_compound_list = (compound_list_preparer) prepare_chunk_for_sections;
 
     sections.set_byte_router("Y", (byte_router) route_sections_y);
     sections.set_compound_router("block_states", block_states);
@@ -170,7 +176,7 @@ static NBTRouter make_blending_data()
 {
     NBTRouter blending_data;
 
-    blending_data.next_handle = (handle_mutator) push_chunk_blending_data;
+    blending_data.prepare_for_compound = (handle_mutator) push_chunk_blending_data;
 
     blending_data.set_int_router("min_section", (int_router) route_min_section);
     blending_data.set_int_router("max_section", (int_router) route_max_section);
@@ -196,10 +202,11 @@ static NBTRouter make_blank(const NBTRouter& sections, const NBTRouter& blending
 {
     NBTRouter root;
 
+    root.set_string_router("Status", (string_router) route_status);
+    root.set_int_router("DataVersion", (int_router) route_version);
     root.set_int_router("xPos",  (int_router) route_xpos);
     root.set_int_router("yPos", (int_router) route_ypos);
     root.set_int_router("zPos", (int_router) route_zpos);
-    root.set_string_router("Status", (string_router) route_status);
     root.set_long_router("LastUpdate", (long_router) route_last_update);
     root.set_long_router("InhabitedTime", (long_router) route_inhabited_time);
 
@@ -207,6 +214,7 @@ static NBTRouter make_blank(const NBTRouter& sections, const NBTRouter& blending
     root.set_compound_router("blending_data", blending_data);
     root.set_compound_router("block_entities", block_entities);
     root.set_compound_router("Heightmaps", heightmaps);
+
     return root;
 }
 
@@ -214,7 +222,6 @@ static NBTRouter make_root(const NBTRouter& blank)
 {
     NBTRouter root;
 
-    root.set_int_router("DataVersion", (int_router) route_version);
     root.set_compound_router("", blank);
 
     return root;

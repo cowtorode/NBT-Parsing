@@ -13,6 +13,7 @@
 #include "nbtcompound.hpp"
 
 typedef void*(*handle_mutator)(void*);
+typedef void*(*compound_list_preparer)(void*, int32_t);
 
 typedef void(*byte_router)(void*, int8_t);
 typedef void(*short_router)(void*, int16_t);
@@ -37,13 +38,19 @@ typedef void(*long_array_router)(void*, int32_t, int64_t[]);
 class NBTRouter
 {
 public:
-    handle_mutator next_handle = [](void* handle){ return handle; };
+    handle_mutator prepare_for_compound = [](void* handle){ return handle; };
+
+    compound_list_preparer prepare_for_compound_list = [](void* handle, int32_t) { return handle; };
+
+    handle_mutator next_handle_l = prepare_for_compound;
 
     void set_compound_router(const std::string& str, const NBTRouter& router);
 
     void set_compound_list_router(const std::string& str, const NBTRouter& router);
 
-    void compounds_find(const std::string& str, const NBTRouter*& next) const;
+    void find_compound(const std::string& str, const NBTRouter*& next) const;
+
+    void find_compound_list(const std::string& str, const NBTRouter*& next) const;
 
     void set_byte_router(const std::string& str, byte_router router);
 
@@ -123,6 +130,8 @@ class BufferOverflowException : std::exception {};
 
 class InvalidNBTTypeException : std::exception {};
 
+class InvalidNBTListTypeException : std::exception {};
+
 class NBTParser
 {
 public:
@@ -195,9 +204,14 @@ private:
     [[nodiscard]] inline void* handle();
 
     /**
-     * Sets the next router and handle in the stack
+     * Sets the next router and prepares the next handle for a single compound
      */
     void push(const NBTRouter& router);
+
+    /**
+     * Sets the next router and prepares the next handle for a compound list
+     */
+    void push_list(const NBTRouter& router, int32_t len);
 
     struct StackElement
     {
@@ -208,6 +222,8 @@ private:
 
         StackElement(const NBTRouter& router);
     };
+
+    [[nodiscard]] static const StackElement& get_empty_stack_element();
 
     char* cursor;
     char* end;

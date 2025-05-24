@@ -5,6 +5,19 @@
 #include <iostream>
 #include "chunk.hpp"
 
+Chunk::Chunk() = default;
+
+Chunk::~Chunk()
+{
+    delete[] sections;
+}
+
+void Chunk::new_sections(int32_t len)
+{
+    sections_len = len;
+    sections = new ChunkSection[len];
+}
+
 void Chunk::set_version(int32_t i)
 {
     version = i;
@@ -60,5 +73,6 @@ void Chunk::print()
               << "inhabited_time: " << inhabited_time << std::endl
               << "last_update: " << last_update << std::endl
               << "blending_max: " << blending_data.max_section << std::endl
-              << "blending_min: " << blending_data.min_section << std::endl;
+              << "blending_min: " << blending_data.min_section << std::endl
+              << "sections_len: " << sections_len << std::endl;
 }

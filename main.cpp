@@ -35,10 +35,13 @@ int main()
     file.open_mca();
     file.read_header();
 
-    // "blending_data" ->
-    //
+    timespec start, end;
 
+    clock_gettime(CLOCK_MONOTONIC, &start);
     Chunk* chunk = file.get_chunk(0, 0);
+    clock_gettime(CLOCK_MONOTONIC, &end);
+
+    std::cout << ((end.tv_sec - start.tv_sec) * 1'000'000'000 + (end.tv_nsec - start.tv_nsec)) << " ns" << std::endl;
 
     chunk->print();
 
